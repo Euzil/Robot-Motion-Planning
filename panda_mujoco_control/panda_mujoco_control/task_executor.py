@@ -28,7 +28,7 @@ class TaskExecutor(Node):
         
         self.callback_group = ReentrantCallbackGroup()
         
-        # 创建动作客户端
+        # Create action client
         self.move_action_client = ActionClient(
             self,
             MoveGroup,
@@ -36,25 +36,25 @@ class TaskExecutor(Node):
             callback_group=self.callback_group
         )
         
-        # 等待动作服务器
+        # Wait for action server
         self.move_action_client.wait_for_server()
         
-        self.get_logger().info('任务执行器已初始化')
+        self.get_logger().info('Task executor has been initialized')
 
     def create_constraints(self, position, orientation=None):
-        """创建运动约束"""
+        """Create motion constraints"""
         constraints = Constraints()
         
-        # 位置约束
+        #Position constraints
         position_constraint = PositionConstraint()
         position_constraint.header.frame_id = "panda_link0"
         position_constraint.link_name = "panda_hand"
         
-        # 定义约束区域
+        # Define constraint area
         bounding_volume = BoundingVolume()
         primitive = SolidPrimitive()
         primitive.type = SolidPrimitive.SPHERE
-        primitive.dimensions = [0.01]  # 1cm 的球形约束
+        primitive.dimensions = [0.01]  # 1cm spherical constraint
         
         bounding_volume.primitives.append(primitive)
         
@@ -71,7 +71,7 @@ class TaskExecutor(Node):
         
         constraints.position_constraints.append(position_constraint)
         
-        # 姿态约束
+        # Posture constraints
         if orientation is None:
             orientation = R.from_euler('xyz', [np.pi, 0, 0]).as_quat()
             
@@ -92,13 +92,13 @@ class TaskExecutor(Node):
         return constraints
 
     async def plan_to_pose(self, position, orientation=None):
-        """规划到指定位姿"""
+        """Plan to the specified position"""
         try:
-            # 创建运动规划请求
+            # Create motion planning request
             goal_msg = MoveGroup.Goal()
             motion_request = MotionPlanRequest()
             
-            # 设置工作空间参数
+            # Set workspace parameters
             workspace = WorkspaceParameters()
             workspace.header.frame_id = "panda_link0"
             workspace.header.stamp = self.get_clock().now().to_msg()
@@ -110,44 +110,44 @@ class TaskExecutor(Node):
             workspace.max_corner.z = 1.0
             motion_request.workspace_parameters = workspace
             
-            # 设置约束
+            # Set constraints
             motion_request.goal_constraints = [self.create_constraints(position, orientation)]
             
-            # 设置规划组
+            # Set planning group
             motion_request.group_name = "panda_arm"
             
-            # 设置规划时间
+            # Set planning time
             motion_request.allowed_planning_time = 5.0
             
-            # 设置最大速度缩放因子
+            #Set the maximum speed scaling factor
             motion_request.max_velocity_scaling_factor = 0.3
             motion_request.max_acceleration_scaling_factor = 0.3
             
             goal_msg.request = motion_request
             
-            # 发送目标并等待结果
-            self.get_logger().info('发送运动规划请求')
+            # Send target and wait for result
+            self.get_logger().info('Send motion planning request')
             send_goal_future = await self.move_action_client.send_goal_async(goal_msg)
             
             if not send_goal_future.accepted:
-                self.get_logger().error('目标被拒绝')
+                self.get_logger().error('target denied')
                 return False
                 
-            self.get_logger().info('目标被接受，等待执行结果')
+            self.get_logger().info('Target accepted, waiting for execution results')
             goal_handle = send_goal_future.result()
             result_future = await goal_handle.get_result_async()
             
             success = result_future.result().success
             if success:
-                self.get_logger().info('运动执行成功')
+                self.get_logger().info('Movement executed successfully')
             else:
-                self.get_logger().error('运动执行失败')
+                self.get_logger().error('Movement execution failed')
             return success
             
         except Exception as e:
-            self.get_logger().error(f'规划失败: {str(e)}')
+            self.get_logger().error(f'Planning failed: {str(e)}')
             return False
-
+    '''
     async def execute_picking_task(self):
         """执行抓取任务"""
         try:
@@ -191,6 +191,7 @@ class TaskExecutor(Node):
         except Exception as e:
             self.get_logger().error(f'执行任务时出错: {str(e)}')
             return False
+    '''
 
 def main(args=None):
     rclpy.init(args=args)
@@ -198,15 +199,15 @@ def main(args=None):
     try:
         executor = TaskExecutor()
         
-        # 使用多线程执行器
+        # Use multi-threaded executor
         rclpy_executor = MultiThreadedExecutor()
         rclpy_executor.add_node(executor)
         
-        # 创建并运行任务
+        # Create and run tasks
         import asyncio
         loop = asyncio.get_event_loop()
         
-        # 运行主任务
+        # Run the main task
         loop.run_until_complete(executor.execute_picking_task())
         
         try:
@@ -215,7 +216,7 @@ def main(args=None):
             pass
             
     except Exception as e:
-        print(f"发生错误: {e}")
+        print(f"An error occurred: {e}")
     finally:
         rclpy.shutdown()
 

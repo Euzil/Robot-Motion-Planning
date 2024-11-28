@@ -8,33 +8,32 @@ class ImprovedAPFPlanner:
         self.model = model
         self.data = data
         
-        # 改进的APF参数
-        self.k_att = 1.0    # 引力系数
-        self.k_rep = 0.3    # 斥力系数
-        self.rho_0 = 0.3    # 斥力影响范围
-        self.step_size = 0.01  # 步长
+        #APF parameter
+        self.k_att = 1.0    # Attraction coefficient
+        self.k_rep = 0.3    # Repulsion coefficient
+        self.rho_0 = 0.3    # Repulsive force range of influence
+        self.step_size = 0.01  # step
         self.max_iterations = 1000
         self.goal_threshold = 0.01
         
-        # 势场采样点网格
-        self.grid_size = 20  # 每个维度的采样点数
+        # Potential field sampling point grid
+        self.grid_size = 20  # Number of sampling points in each dimension
         self.workspace_bounds = {
-            'x': (0.1, 0.7),  # 工作空间范围
+            'x': (0.1, 0.7), 
             'y': (-0.3, 0.3),
             'z': (0.1, 0.7)
         }
         
-        # 障碍物配置
+        # Obstacle configuration
         self.obstacles = [
             (np.array([0.4, 0.4, 0.4]), 0.08),
         ]
         
-        # 初始化可视化元素
+        # Initialize visual elements
         self._init_visualization()
     
     def _init_visualization(self):
-        """初始化势场可视化元素"""
-        # 创建势场箭头标记点
+        # Create potential field arrow mark points
         self.force_arrows = []
         x_range = np.linspace(self.workspace_bounds['x'][0], self.workspace_bounds['x'][1], self.grid_size)
         y_range = np.linspace(self.workspace_bounds['y'][0], self.workspace_bounds['y'][1], self.grid_size)
@@ -51,16 +50,13 @@ class ImprovedAPFPlanner:
                     })
     
     def _compute_force_field(self, goal_pos):
-        """计算整个工作空间的力场"""
+        """Calculate the force field for the entire workspace"""
         for arrow in self.force_arrows:
             pos = arrow['pos']
-            # 计算引力
             f_att = self._attractive_force(pos, goal_pos)
-            # 计算斥力
             f_rep = self._repulsive_force(pos)
-            # 合成总力
             total_force = f_att + f_rep
-            # 归一化方向向量
+            # Normalized direction vector
             magnitude = np.linalg.norm(total_force)
             if magnitude > 1e-6:
                 direction = total_force / magnitude
@@ -68,10 +64,10 @@ class ImprovedAPFPlanner:
                 direction = np.zeros(3)
             
             arrow['dir'] = direction
-            arrow['magnitude'] = min(magnitude, 0.1)  # 限制箭头长度
+            arrow['magnitude'] = min(magnitude, 0.1)
     
     def _attractive_force(self, position, goal):
-        """计算引力（使用二次型势场）"""
+        """Calculate attract (using quadratic potential field)"""
         diff = goal - position
         distance = np.linalg.norm(diff)
         
@@ -81,14 +77,13 @@ class ImprovedAPFPlanner:
             return self.k_att * self.rho_0 * diff / distance
     
     def _repulsive_force(self, position):
-        """计算改进的斥力（考虑障碍物大小）"""
+        """Calculate repulsion (taking into account obstacle size)"""
         total_force = np.zeros(3)
         
         for obs_pos, obs_radius in self.obstacles:
             diff = position - obs_pos
             distance = np.linalg.norm(diff)
             
-            # 考虑障碍物实际大小
             actual_distance = max(distance - obs_radius, 0.001)
             
             if actual_distance < self.rho_0:
@@ -99,15 +94,14 @@ class ImprovedAPFPlanner:
         return total_force
     
     def render_force_field(self, viewer):
-        """渲染力场可视化"""
-        # 渲染势场箭头
+        # Render potential field arrows
         for arrow in self.force_arrows:
             start_pos = arrow['pos']
             direction = arrow['dir']
             magnitude = arrow['magnitude']
             
             if magnitude > 1e-6:
-                # 箭头起点
+                #Start point of arrow
                 viewer.add_marker(
                     pos=start_pos,
                     size=np.array([0.005, 0.005, 0.005]),
@@ -115,7 +109,7 @@ class ImprovedAPFPlanner:
                     type=mujoco.mjtGeom.mjGEOM_SPHERE
                 )
                 
-                # 箭头线段
+                # Arrow segment
                 end_pos = start_pos + direction * magnitude * 0.1
                 viewer.add_marker(
                     pos=start_pos,
@@ -125,7 +119,7 @@ class ImprovedAPFPlanner:
                     type=mujoco.mjtGeom.mjGEOM_CYLINDER
                 )
         
-        # 渲染障碍物
+        # Render obstacles
         for obs_pos, obs_radius in self.obstacles:
             viewer.add_marker(
                 pos=obs_pos,
@@ -135,30 +129,30 @@ class ImprovedAPFPlanner:
             )
     
     def plan_trajectory(self, start_pos, goal_pos):
-        """生成基于势场的轨迹"""
+        """Generate trajectories based on potential fields"""
         path = [start_pos]
         current_pos = start_pos.copy()
         
-        # 计算整个工作空间的力场
+        # Calculate the force field for the entire workspace
         self._compute_force_field(goal_pos)
         
         for i in range(self.max_iterations):
-            # 计算当前位置的合力
+            # Calculate the resultant force at the current position
             f_att = self._attractive_force(current_pos, goal_pos)
             f_rep = self._repulsive_force(current_pos)
             total_force = f_att + f_rep
             
-            # 使用梯度下降更新位置
+            # Update position using gradient descent
             force_magnitude = np.linalg.norm(total_force)
             if force_magnitude > 1e-6:
                 movement = self.step_size * (total_force / force_magnitude)
                 current_pos += movement
             
-            # 记录路径
-            if i % 5 == 0:  # 每5步记录一次，减少路径点数量
+            # Record path
+            if i % 5 == 0: 
                 path.append(current_pos.copy())
             
-            # 检查是否达到目标
+            # Check if the goal is reached
             if np.linalg.norm(current_pos - goal_pos) < self.goal_threshold:
                 break
         
