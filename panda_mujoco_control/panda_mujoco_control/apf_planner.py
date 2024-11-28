@@ -10,8 +10,8 @@ class ImprovedAPFPlanner:
         
         # 改进的APF参数
         self.k_att = 1.0    # 引力系数
-        self.k_rep = 2.0    # 斥力系数
-        self.rho_0 = 0.5    # 斥力影响范围
+        self.k_rep = 0.3    # 斥力系数
+        self.rho_0 = 0.3    # 斥力影响范围
         self.step_size = 0.01  # 步长
         self.max_iterations = 1000
         self.goal_threshold = 0.01
@@ -26,8 +26,7 @@ class ImprovedAPFPlanner:
         
         # 障碍物配置
         self.obstacles = [
-            (np.array([0.4, 0.0, 0.4]), 0.08),
-            (np.array([0.4, 0.2, 0.4]), 0.08),
+            (np.array([0.4, 0.4, 0.4]), 0.08),
         ]
         
         # 初始化可视化元素

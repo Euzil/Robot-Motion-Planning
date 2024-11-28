@@ -7,6 +7,8 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import time
+import numpy as np
+import matplotlib.pyplot as plt
 from panda_mujoco_control.apf_planner import ImprovedAPFPlanner
 
 
@@ -184,45 +186,6 @@ class MujocoROS2Bridge(Node):
         
         return True
     
-    def trajectory_callback(self, msg: DisplayTrajectory):
-        self.get_logger().info('开始规划和执行轨迹')
-        
-        try:
-            self.initialize_viewer()
-            
-            # 修改起点和终点，使路径更合理
-            start_pos = np.array([0.6, 0.4, 0.4])    # 保持起点在机器人前方
-            goal_pos = np.array([0.1, 0.4, 0.4])     # 终点只在Y方向有变化，便于测试
-            
-            self.get_logger().info(f'起点: {start_pos}')
-            self.get_logger().info(f'终点: {goal_pos}')
-            
-            # 设置APF参数
-            self.planner.k_att = 2.0        # 减小引力
-            self.planner.k_rep = 0.5        # 减小斥力
-            self.planner.step_size = 0.01   # 减小步长
-            self.planner.rho_0 = 0.3        # 减小影响范围
-            
-            # 调整障碍物位置
-            self.planner.obstacles = [
-                (np.array([0.4, 0.15, 0.4]), 0.05),  # 在起点和终点之间放置一个小障碍物
-            ]
-            
-            # 生成路径
-            path = self.planner.plan_trajectory(start_pos, goal_pos)
-            
-            # 对路径进行平滑处理
-            smoothed_path = self.smooth_path(path)
-            
-            self.get_logger().info(f'已生成路径点数量: {len(smoothed_path)}')
-            
-            # 执行路径
-            self.execute_path(smoothed_path)
-            
-        except Exception as e:
-            self.get_logger().error(f'执行失败: {str(e)}')
-            import traceback
-            self.get_logger().error(traceback.format_exc())
     
     def smooth_path(self, path):
         """平滑路径，去除不必要的振荡"""
@@ -287,6 +250,205 @@ class MujocoROS2Bridge(Node):
                     self.data.qpos[:7] = last_successful_joints
             else:
                 self.get_logger().warn(f'IK求解失败，目标位置: {target_pos}')
+
+    # 在您的代码中使用示例：
+    def trajectory_callback(self, msg: DisplayTrajectory):
+        self.get_logger().info('开始规划和执行轨迹')
+        
+        try:
+            # 设置起点和终点
+            start_pos = np.array([0.1, 0.4, 0.4])
+            goal_pos = np.array([0.6, 0.4, 0.4])
+            
+            # 修改障碍物配置
+            self.planner.obstacles = [
+                (np.array([0.4, 0.15, 0.4]), 0.08),  # 在路径中间放置障碍物
+            ]
+            
+            # 调整APF参数以增强避障效果
+            self.planner.k_att = 1.0    # 减小引力以防止直接穿过障碍物
+            self.planner.k_rep = 5.0    # 增大斥力
+            self.planner.rho_0 = 0.3    # 增大斥力影响范围
+            self.planner.step_size = 0.01  # 减小步长使运动更平滑
+            
+            
+            
+            # 规划路径
+            path = self.planner.plan_trajectory(start_pos, goal_pos)
+            self.current_path = path  # 保存路径用于绘图
+            smoothed_path = self.smooth_path(path)
+            
+            # 生成可视化（这次包含路径）
+            self.plot_potential_field(self.planner, start_pos, goal_pos, smoothed_path)
+            self.plot_3d_potential(self.planner, start_pos, goal_pos, smoothed_path)
+            
+            # 执行路径
+            self.execute_path(smoothed_path)
+            
+        except Exception as e:
+            self.get_logger().error(f'执行失败: {str(e)}')
+            import traceback
+            self.get_logger().error(traceback.format_exc())
+    def plot_potential_field(self, planner, start_pos, goal_pos, path):
+        
+        # 减少采样密度，使箭头分布更清晰
+        x = np.linspace(-0.2, 1.0, 20)  # 减少采样点
+        y = np.linspace(-0.6, 0.8, 20)
+        X, Y = np.meshgrid(x, y)
+        
+        # 存储势能和力场
+        potential = np.zeros_like(X)
+        U = np.zeros_like(X)
+        V = np.zeros_like(Y)
+        
+        # 计算势场
+        for i in range(len(x)):
+            for j in range(len(y)):
+                pos = np.array([X[j,i], Y[j,i], start_pos[2]])
+                
+                # 使用planner的方法计算力
+                f_att = planner._attractive_force(pos, goal_pos)
+                f_rep = planner._repulsive_force(pos)
+                total_force = f_att + f_rep
+                
+                # 存储归一化的力场方向
+                magnitude = np.linalg.norm(total_force[:2])
+                if magnitude > 1e-6:
+                    U[j,i] = total_force[0] / magnitude
+                    V[j,i] = total_force[1] / magnitude
+                
+                # 计算势能
+                # 引力势能
+                dist_to_goal = np.linalg.norm(pos - goal_pos)
+                att_potential = 0.5 * planner.k_att * dist_to_goal**2
+                
+                # 斥力势能
+                rep_potential = 0
+                for obs_pos, obs_radius in planner.obstacles:
+                    dist_to_obs = np.linalg.norm(pos - obs_pos) - obs_radius
+                    if dist_to_obs < planner.rho_0:
+                        rep_potential += 0.5 * planner.k_rep * (1.0/dist_to_obs - 1.0/planner.rho_0)**2
+                
+                potential[j,i] = att_potential + rep_potential
+        
+        # 创建图像
+        fig = plt.figure(figsize=(20, 8))
+        
+        # 1. 势能等高线图
+        ax1 = fig.add_subplot(121)
+        contour = ax1.contour(X, Y, potential, levels=20, colors='black', alpha=0.4)
+        contourf = ax1.contourf(X, Y, potential, levels=20, cmap='viridis', alpha=0.6)
+        plt.colorbar(contourf, ax=ax1, label='Potential Value')
+        
+        # 使用quiver绘制短箭头
+        ax1.quiver(X, Y, U, V, scale=30, alpha=0.5, color='white', width=0.003)
+        
+        # 2. 单独的力场方向图
+        ax2 = fig.add_subplot(122)
+        # 使用quiver绘制短箭头，颜色表示力的大小
+        magnitude = np.sqrt(U**2 + V**2)
+        ax2.quiver(X, Y, U, V, magnitude, scale=30, cmap='coolwarm', 
+                alpha=0.7, width=0.003)
+        plt.colorbar(ax2.collections[0], ax=ax2, label='Force Magnitude')
+        
+        # 添加路径和关键点
+        for ax in [ax1, ax2]:
+            if path is not None:
+                ax.plot(path[:,0], path[:,1], 'r--', linewidth=2, label='Planned Path')
+                
+            ax.plot(start_pos[0], start_pos[1], 'go', markersize=12, label='Start')
+            ax.plot(goal_pos[0], goal_pos[1], 'ro', markersize=12, label='Goal')
+            
+            # 绘制障碍物
+            for obs_pos, obs_radius in planner.obstacles:
+                circle = plt.Circle((obs_pos[0], obs_pos[1]), obs_radius, 
+                                color='red', alpha=0.2)
+                ax.add_artist(circle)
+            
+            ax.grid(True, linestyle='--', alpha=0.3)
+            ax.set_xlabel('X (m)', fontsize=10)
+            ax.set_ylabel('Y (m)', fontsize=10)
+            ax.legend(fontsize=10)
+            ax.axis('equal')
+            ax.set_xlim([-0.2, 1.0])
+            ax.set_ylim([-0.6, 0.8])
+        
+        ax1.set_title('Potential Field with Force Directions', fontsize=12)
+        ax2.set_title('Force Field Directions', fontsize=12)
+        
+        plt.tight_layout()
+        plt.savefig('potential_field_analysis.png', dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def plot_3d_potential(self, planner, start_pos, goal_pos, path):
+        """创建3D势能表面图，包含路径"""
+        x = np.linspace(0.1, 0.7, 50)
+        y = np.linspace(-0.3, 0.5, 50)
+        X, Y = np.meshgrid(x, y)
+        Z = np.zeros_like(X)
+        
+        for i in range(len(x)):
+            for j in range(len(y)):
+                pos = np.array([X[j,i], Y[j,i], start_pos[2]])
+                
+                # 计算总势能
+                dist_to_goal = np.linalg.norm(pos - goal_pos)
+                att_potential = 0.5 * planner.k_att * dist_to_goal**2
+                
+                dist_to_start = np.linalg.norm(pos - start_pos)
+                start_rep_potential = (0.5 * planner.k_rep * (1/dist_to_start - 1/planner.rho_0)**2 
+                                    if dist_to_start < planner.rho_0 else 0)
+                
+                obs_rep_potential = 0
+                for obs_pos, obs_radius in planner.obstacles:
+                    dist_to_obs = np.linalg.norm(pos - obs_pos) - obs_radius
+                    if dist_to_obs < planner.rho_0:
+                        obs_rep_potential += 0.5 * planner.k_rep * (1/dist_to_obs - 1/planner.rho_0)**2
+                
+                Z[j,i] = att_potential + start_rep_potential + obs_rep_potential
+        
+        # 创建3D图
+        fig = plt.figure(figsize=(15, 12))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # 绘制势能表面
+        surf = ax.plot_surface(X, Y, Z, cmap='viridis', alpha=0.8,
+                            linewidth=0, antialiased=True)
+        
+        # 添加等高线投影
+        offset = np.min(Z)
+        ax.contour(X, Y, Z, zdir='z', offset=offset, levels=20, cmap='viridis')
+        
+        # 添加路径
+        if path is not None:
+            # 计算路径上每个点的势能值
+            path_Z = np.zeros(len(path))
+            for i, pos in enumerate(path):
+                dist_to_goal = np.linalg.norm(pos - goal_pos)
+                path_Z[i] = 0.5 * planner.k_att * dist_to_goal**2  # 简化的势能计算
+            
+            # 绘制3D路径
+            ax.plot3D(path[:,0], path[:,1], path_Z, 'r--', linewidth=2, label='Planned Path')
+        
+        # 标记特殊点
+        ax.scatter(start_pos[0], start_pos[1], np.max(Z), color='g', s=100, label='Start')
+        ax.scatter(goal_pos[0], goal_pos[1], np.min(Z), color='r', s=100, label='Goal')
+        
+        # 添加标签和图例
+        ax.set_xlabel('X (m)')
+        ax.set_ylabel('Y (m)')
+        ax.set_zlabel('Potential')
+        ax.set_title('3D Potential Field Surface with Path')
+        
+        # 添加颜色条
+        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5, label='Potential Value')
+        
+        # 调整视角
+        ax.view_init(elev=35, azim=45)
+        
+        plt.savefig('potential_field_3d.png', dpi=300, bbox_inches='tight')
+        plt.close()
+
 
 def main(args=None):
     rclpy.init(args=args)
