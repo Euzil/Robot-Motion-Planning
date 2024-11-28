@@ -10,7 +10,7 @@ class ImprovedAPFPlanner:
         
         #APF parameter
         self.k_att = 1.0    # Attraction coefficient
-        self.k_rep = 0.3    # Repulsion coefficient
+        self.k_rep = 0.001    # Repulsion coefficient
         self.rho_0 = 0.3    # Repulsive force range of influence
         self.step_size = 0.01  # step
         self.max_iterations = 1000
@@ -26,7 +26,7 @@ class ImprovedAPFPlanner:
         
         # Obstacle configuration
         self.obstacles = [
-            (np.array([0.4, 0.4, 0.4]), 0.08),
+            (np.array([0.2, 0.15, 0.4]), 0.08),
         ]
         
         # Initialize visual elements

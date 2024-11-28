@@ -147,7 +147,7 @@ class TaskExecutor(Node):
         except Exception as e:
             self.get_logger().error(f'Planning failed: {str(e)}')
             return False
-    '''
+    
     async def execute_picking_task(self):
         """执行抓取任务"""
         try:
@@ -191,7 +191,7 @@ class TaskExecutor(Node):
         except Exception as e:
             self.get_logger().error(f'执行任务时出错: {str(e)}')
             return False
-    '''
+    
 
 def main(args=None):
     rclpy.init(args=args)

@@ -257,21 +257,10 @@ class MujocoROS2Bridge(Node):
         
         try:
             # Set start and end points
-            start_pos = np.array([0.1, 0.4, 0.4])
-            goal_pos = np.array([0.6, 0.4, 0.4])
+            start_pos = np.array([-0.2, 0.2, 0.4])
+            goal_pos = np.array([0.6, 0.2, 0.4])
             
-            # Modify obstacle configuration
-            self.planner.obstacles = [
-                (np.array([0.4, 0.15, 0.4]), 0.08),  # Place obstacles in the middle of the path
-            ]
-            
-            # Adjust APF parameters to enhance obstacle avoidance effect
-            self.planner.k_att = 1.0    
-            self.planner.k_rep = 5.0    
-            self.planner.rho_0 = 0.3    
-            self.planner.step_size = 0.01 
-            
-            
+
             
             #Plan path
             path = self.planner.plan_trajectory(start_pos, goal_pos)
